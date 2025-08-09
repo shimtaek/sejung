@@ -1,0 +1,324 @@
+1단계. 준비 확인 (한 번만)
+Anaconda Prompt (Miniconda3) 창을 엶
+
+아래가 정상이어야 해:
+
+
+conda activate lerobot
+lerobot-replay --help
+도움말이 뜨면 OK.
+
+2단계 프로젝트 폴더 만들기
+
+
+conda activate lerobot
+mkdir %USERPROFILE%\lerobot_web
+cd %USERPROFILE%\lerobot_web
+
+이 폴더가 백엔드/프론트엔드 파일이 놓일 곳이야. (경로 예: C:\Users\면택\lerobot_web)
+
+3단계
+
+pip install flask
+
+4단계: VS Code에서 폴더 열기
+VS Code 실행
+
+파일 → 폴더 열기
+C:\Users\면택\lerobot_web 선택
+
+왼쪽 아래 파란바 → Python 환경 선택
+Python 3.10 ('lerobot': conda) 선택
+
+
+
+5단계: 백엔드 서버 파일 만들기
+VS Code 왼쪽 파일 탐색기에서 app.py 새 파일 만들기
+
+아래 코드 붙여넣기
+
+##################### 이거넣어  파일이름 app.py로 저장
+from flask import Flask, render_template
+import subprocess
+
+app = Flask(__name__)
+
+# 버튼 클릭 시 특정 episode 재생
+@app.route("/replay/<int:episode>")
+def replay(episode):
+    cmd = [
+        "lerobot-replay",
+        "--robot.type=so101_follower",
+        "--robot.port=COM3",
+        "--robot.id=my_awesome_follower_arm",
+        "--dataset.repo_id=localuser/record-test2",
+        f"--dataset.episode={episode}"
+    ]
+    try:
+        subprocess.run(cmd, check=True)
+        return f"Episode {episode} 실행 완료!"
+    except subprocess.CalledProcessError as e:
+        return f"실행 실패: {e}"
+
+# 메인 페이지
+@app.route("/")
+def index():
+    return render_template("index.html")
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)
+
+############################# 5단계
+5단계: HTML 만들기 (버튼 UI)
+lerobot_web 안에 templates 폴더 만들기 
+그러면 lerobot_web안에 app.py 코드하나랑 폴더가 하나있겠지 templates폴더
+templates 폴더안에
+ index.html 만들기
+
+아래 코드 붙여넣기
+
+#######################3
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>로봇팔 Episode 실행</title>
+</head>
+<body>
+    <h1>로봇팔 Episode 선택</h1>
+    <button onclick="location.href='/replay/0'">Episode 0</button>
+    <button onclick="location.href='/replay/1'">Episode 1</button>
+    <button onclick="location.href='/replay/2'">Episode 2</button>
+</body>
+</html>
+
+##############
+6단계: 서버 실행
+터미널에서:
+
+powershell
+
+conda activate lerobot
+python app.py
+→ 브라우저에서 http://localhost:5000 접속
+→ 버튼 클릭 시 해당 episode 리플레이 실행   (0번 버튼 에피소드 1 1번버튼 에피소드 2 .... 2번버튼 에피소드 3)..
+
+💡 이 방식이면 앞으로 버튼을 나라별로 만들고, 각 버튼이 다른 episode 번호를 실행하도록 수정 가능해요.
+원하시면 제가 나라별 버튼 + 디자인까지 해서 드릴 수도 있습니다.
+
+바로 그렇게 확장할까요?
+
+
+
+
+
+
+나의 말:
+template 폴더 어디만들어
+ 폴더구조
+
+
+
+
+폴더 구조 예시
+
+C:\Users\면택\lerobot_web
+│  app.py
+│
+└─templates
+    │  index.html
+만드는 방법 (VS Code 안에서)
+VS Code 왼쪽 파일 탐색기에서 lerobot_web 폴더 위에 마우스 우클릭
+
+새 폴더 선택
+
+이름을 templates로 입력
+
+templates 폴더 위에 마우스 우클릭 → 새 파일 → index.html 작성
+
+제가 준 HTML 코드 붙여넣기 → 저장
+
+💡 Flask는 templates라는 폴더명을 자동으로 인식해서 HTML 파일을 찾기 때문에 꼭 이 이름으로 만들어야 합니다.
+바로 이대로 하실래요? 그러면 다음 단계에서 python app.py 실행해서 웹 확인할 수 있습니다.
+
+
+
+
+
+
+나의 말:
+오 만들어짐 연결해바
+4단계계 백엔드 파일 만들기: app.py
+아래를 그대로 복사해서 C:\Users\면택\lerobot_web\app.py로 저장.
+
+
+
+
+############################################   이거 복사해서  %USERPROFILE%\lerobot_web 이 경로안에서 app.py 파일 만들기  visual studio로 하면편함
+from flask import Flask, render_template, request, jsonify
+import subprocess, threading
+
+app = Flask(__name__)
+
+# ★ 네 환경에 맞게 고정 값 (우리가 이미 확인한 값들)
+ROBOT_PORT = "COM3"  # follower
+LEADER_PORT = "COM4" # teleop
+ROBOT_ID = "my_awesome_follower_arm"
+LEADER_ID = "my_awesome_leader_arm"
+DATASET_REPO_ID = "localuser/record-test2"  # 로컬 저장 이름(앞서 만든 것)
+
+# 동시 실행 방지용 락(한 번에 하나만 재생)
+lock = threading.Lock()
+
+def run_replay(ep: int) -> int:
+    """지정 에피소드를 동기 실행(끝날 때까지 기다림). 종료 코드를 반환"""
+    cmd = [
+        "lerobot-replay",
+        f"--robot.type=so101_follower",
+        f"--robot.port={ROBOT_PORT}",
+        f"--robot.id={ROBOT_ID}",
+        f"--dataset.repo_id={DATASET_REPO_ID}",
+        f"--dataset.episode={ep}",
+    ]
+    # 완료까지 대기(순차 재생에 필요)
+    return subprocess.call(cmd)
+
+@app.route("/")
+def index():
+    # 메인 페이지 (templates/index.html 렌더)
+    return render_template("index.html")
+
+@app.route("/replay/<int:ep>", methods=["POST"])
+def replay_single(ep: int):
+    # 단일 에피소드 재생 (비동기 시작: 바로 응답)
+    if lock.locked():
+        return ("이미 재생 중입니다. 잠시 후 다시 시도하세요.", 409)
+    threading.Thread(target=lambda: (lock.acquire(), run_replay(ep), lock.release()), daemon=True).start()
+    return f"Episode {ep} 재생 시작"
+
+@app.route("/replay-seq", methods=["POST"])
+def replay_sequence():
+    """
+    순차 재생: 예) eps=0,1,2
+    요청 예: POST /replay-seq?eps=0,1,2
+    """
+    eps = request.args.get("eps", "")
+    try:
+        order = [int(x.strip()) for x in eps.split(",") if x.strip() != ""]
+        assert len(order) > 0
+    except Exception:
+        return ("eps 파라미터가 잘못되었습니다. 예: /replay-seq?eps=0,1,2", 400)
+
+    if lock.locked():
+        return ("이미 재생 중입니다. 잠시 후 다시 시도하세요.", 409)
+
+    def worker():
+        lock.acquire()
+        try:
+            for ep in order:
+                rc = run_replay(ep)
+                # 실패해도 다음으로 갈지 중단할지 정책 선택 가능. 여기선 중단.
+                if rc != 0:
+                    break
+        finally:
+            lock.release()
+
+    threading.Thread(target=worker, daemon=True).start()
+    return f"순차 재생 시작: {order}"
+    
+if __name__ == "__main__":
+    # 로컬 개발용 서버 실행
+    app.run(host="0.0.0.0", port=5000)
+####################################################################### 여기까지 
+
+4단계계 프론트엔드(버튼 페이지) 만들기: templates/index.html
+폴더를 만들고 파일을 저장해.
+
+
+mkdir %USERPROFILE%\lerobot_web\templates
+그 다음 C:\Users\면택\lerobot_web\templates\index.html 내용:
+
+html
+복사
+편집
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <title>LeRobot Replay</title>
+  <style>
+    body { font-family: sans-serif; max-width: 720px; margin: 24px auto; }
+    h1 { margin-bottom: 8px; }
+    button { padding: 10px 16px; margin: 6px; cursor: pointer; }
+    #log { white-space: pre-wrap; background:#f6f6f6; padding:12px; border-radius:8px; }
+  </style>
+</head>
+<body>
+  <h1>로봇 리플레이 컨트롤</h1>
+  <p>원하는 버튼을 누르면 해당 에피소드가 재생됩니다.</p>
+
+  <h2>단일 재생</h2>
+  <button onclick="playOne(0)">Episode 0 (표시상 1)</button>
+  <button onclick="playOne(1)">Episode 1 (표시상 2)</button>
+  <button onclick="playOne(2)">Episode 2 (표시상 3)</button>
+
+  <h2>순차 재생</h2>
+  <button onclick="playSeq('0,1,2')">0 → 1 → 2</button>
+
+  <h3>상태</h3>
+  <div id="log">준비 완료</div>
+
+  <script>
+    async function playOne(ep){
+      const res = await fetch(`/replay/${ep}`, {method:'POST'});
+      document.getElementById('log').textContent = await res.text();
+    }
+    async function playSeq(eps){
+      const res = await fetch(`/replay-seq?eps=${encodeURIComponent(eps)}`, {method:'POST'});
+      document.getElementById('log').textContent = await res.text();
+    }
+  </script>
+</body>
+</html>
+5) 서버 실행
+Anaconda Prompt에서:
+
+bat
+복사
+편집
+conda activate lerobot
+cd %USERPROFILE%\lerobot_web
+python app.py
+Windows 방화벽 팝업이 뜨면 “허용”을 눌러줘.
+
+브라우저에서 http://localhost:5000 접속 → 버튼 보이면 성공!
+
+중요: 지금 코드는 한 번에 하나만 재생되도록 잠금(lock)을 걸었어.
+실행 중엔 “이미 재생 중입니다(409)”가 뜨는 게 정상이야.
+
+6) 사용법
+단일 재생: Episode 0/1/2 버튼
+
+순차 재생: “0→1→2” 버튼
+(원하는 순서를 바꾸고 싶으면 index.html에서 playSeq('0,2,1')처럼 수정)
+
+7) 종료/재시작
+서버 끄기: 서버 띄운 콘솔에서 Ctrl + C
+
+다시 시작: python app.py
+
+다른 PC/폰에서도 같은 네트워크라면 http://<이PC의 IP>:5000로 접속 가능
+
+8) 내 환경과 다를 때 바꿀 곳
+app.py 맨 위의 상수들:
+
+python
+복사
+편집
+ROBOT_PORT = "COM3"
+LEADER_PORT = "COM4"
+ROBOT_ID = "my_awesome_follower_arm"
+LEADER_ID = "my_awesome_leader_arm"
+DATASET_REPO_ID = "localuser/record-test2"
+포트/ID/데이터셋 이름 바꾸면 됨 (지금은 우리가 확인한 값으로 설정해둠)
+
