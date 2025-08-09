@@ -1,0 +1,250 @@
+##lerobot 허깅페이스에 로그인해서 녹화하기귀찮을때:  로컬에 바로 저장한다.
+lerobot-record --robot.type=so101_follower --robot.port=COM3 --robot.id=my_awesome_follower_arm --teleop.type=so101_leader --teleop.port=COM4 --teleop.id=my_awesome_leader_arm --display_data=true --dataset.repo_id=localuser/record-test2 --dataset.num_episodes=1 --dataset.single_task="Grab the black cube" --dataset.push_to_hub=false
+
+##저장위치
+C:\Users\면택\.cache\huggingface\lerobot\localuser__record-test2
+
+
+## 로컬에 저장한거 바로 실행
+lerobot-replay --robot.type=so101_follower --robot.port=COM3 --robot.id=my_awesome_follower_arm --dataset.repo_id=localuser/record-test2 --dataset.episode=0
+
+##나는 follower COM3 leader COM4로 설정했음
+
+
+## 웹서버 저장경로
+1) 프로젝트 폴더 만들기
+
+conda activate lerobot
+mkdir %USERPROFILE%\lerobot_web        #이코드 실행 로컬디스크 C:USER 사용자안에 만듬 
+cd %USERPROFILE%\lerobot_web
+이 폴더가 백엔드/프론트엔드 파일이 놓일 곳이야. (경로 예: C:\Users\면택\lerobot_web)
+
+2) Flask 설치
+
+pip install flask
+
+3) 백엔드 만들기 :app.py    lerobot_web안에 바로 저장한다.
+
+## app.py
+
+from flask import Flask, render_template, url_for, request
+import subprocess, threading
+
+app = Flask(__name__, static_folder="static")
+
+# ★ 나라→에피소드 매핑 (원하는 대로 수정)
+COUNTRIES = [
+    {"code": "KOR", "name": "대한민국", "episode": 0, "flag": "KOR.png"},
+    {"code": "US", "name": "미국", "episode": 1, "flag": "US.png"},
+    {"code": "CH", "name": "중국", "episode": 2, "flag": "CH.png"},
+]
+
+# 네 환경
+ROBOT_PORT = "COM3"
+ROBOT_ID   = "my_awesome_follower_arm"
+DATASET_REPO_ID = "localuser/record-test2"
+
+lock = threading.Lock()
+
+def run_replay(ep: int) -> int:
+    cmd = [
+        "lerobot-replay",
+        "--robot.type=so101_follower",
+        f"--robot.port={ROBOT_PORT}",
+        f"--robot.id={ROBOT_ID}",
+        f"--dataset.repo_id={DATASET_REPO_ID}",
+        f"--dataset.episode={ep}",
+    ]
+    return subprocess.call(cmd)
+
+@app.route("/")
+def index():
+    return render_template("index.html", countries=COUNTRIES)
+
+@app.route("/replay/<int:ep>", methods=["POST"])
+def replay(ep: int):
+    if lock.locked():
+        return ("이미 재생 중입니다. 잠시 후 다시 시도하세요.", 409)
+    threading.Thread(target=lambda: (lock.acquire(), run_replay(ep), lock.release()), daemon=True).start()
+    return f"Episode {ep} 재생 시작"
+    
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)
+
+
+# 4)프론트엔드 버튼만들기  html    lerobot_web 안에 templates 폴더만들고 그안에 저장   , lerobot_web안에 flags 파일 만들고 KOR,CH,USA PNG 파일 저장해야함 
+
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <title>거리기반 물류시스템</title>
+  <style>
+    body { font-family: sans-serif; max-width: 820px; margin: 24px auto; }
+    h1 { margin-bottom: 12px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 14px; }
+    .card { border: 1px solid #eee; border-radius: 12px; padding: 10px; text-align: center; cursor: pointer; }
+    .card:hover { box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
+    .flag { width: 120px; height: 80px; object-fit: cover; border-radius: 8px; }
+    #log { margin-top: 16px; white-space: pre-wrap; background:#f6f6f6; padding:12px; border-radius:8px; }
+    button { padding: 10px 16px; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <h1>거리기반 물류시스템</h1>
+  <div class="grid">
+    {% for c in countries %}
+    <div class="card" onclick="play({{ c.episode }})">
+      <img class="flag" src="{{ url_for('static', filename='flags/' + c.flag) }}" alt="{{ c.name }}" />
+      <div style="margin-top:8px;">{{ c.name }} (ep {{ c.episode }})</div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <div id="log">준비 완료</div>
+
+  <script>
+    async function play(ep){
+      const res = await fetch(`/replay/${ep}`, { method:'POST' });
+      const txt = await res.text();
+      document.getElementById('log').textContent = txt;
+    }
+  </script>
+</body>
+</html>
+
+
+############
+5) 서버 실행
+Anaconda Prompt에서:
+
+conda activate lerobot
+cd %USERPROFILE%\lerobot_web
+python app.py
+Windows 방화벽 팝업이 뜨면 “허용”을 눌러줘.
+
+브라우저에서 http://localhost:5000 접속 → 버튼 보이면 성공!
+
+중요: 지금 코드는 한 번에 하나만 재생되도록 잠금(lock)을 걸었어.
+실행 중엔 “이미 재생 중입니다(409)”가 뜨는 게 정상이야.
+
+
+6) 사용법
+단일 재생: Episode 0/1/2 버튼
+
+
+
+7) 종료/재시작
+서버 끄기: 서버 띄운 콘솔에서 Ctrl + C
+
+다시 시작: python app.py
+
+다른 PC/폰에서도 같은 네트워크라면 http://<이PC의 IP>:5000로 접속 가능
+
+##############################################################################################################
+8) 내 환경과 다를 때 바꿀 곳  이부분 바꿔야함 
+app.py 맨 위의 상수들:
+
+ROBOT_PORT = "COM3"             #follower 니포트
+LEADER_PORT = "COM4"            #leader 니포트
+ROBOT_ID = "my_awesome_follower_arm"
+LEADER_ID = "my_awesome_leader_arm"
+DATASET_REPO_ID = "localuser/record-test2"    ### 니 데이터셋
+포트/ID/데이터셋 이름 바꾸면 됨 (지금은 우리가 확인한 값으로 설정해둠)
+
+##만약 DATASET_REPO_ID는 하나고 하나안에 EPISODE 여러개면
+지금 상태에서 REPO_ID만 바꾸면됨
+
+REPO_ID 자체가 여러개면
+APP.PY HTML 코드 바꿔야함 
+
+아래 코드참조: 테스트안해봄  REPO ID 하나안에 EPISODE 여러개면 밑에코드 필요 X
+################################################################################################
+B) 데이터셋도 여러 개(record-test2, record-jp, …) 쓰고 싶을 때
+repo_id를 나라별로 다르게 들고 가야 해요. 아래처럼 코드를 바꾸면 됩니다.
+
+app.py 수정안 (나라별 repo_id 지원)
+python
+복사
+편집
+from flask import Flask, render_template, request
+import subprocess, threading
+
+app = Flask(__name__, static_folder="static")
+
+# ISO 코드 주의: 한국 KR, 미국 US, 중국 CN (CH는 스위스)
+COUNTRIES = [
+    {"code": "KR", "name": "대한민국", "repo_id": "localuser/record-test2", "episode": 0, "flag": "KR.png"},
+    {"code": "US", "name": "미국",   "repo_id": "localuser/record-us",   "episode": 1, "flag": "US.png"},
+    {"code": "CH", "name": "중국",   "repo_id": "localuser/record-cn",   "episode": 2, "flag": "CH.png"},
+]
+
+ROBOT_PORT = "COM3"
+ROBOT_ID   = "my_awesome_follower_arm"
+
+lock = threading.Lock()
+
+def run_replay(repo_id: str, ep: int) -> int:
+    cmd = [
+        "lerobot-replay",
+        "--robot.type=so101_follower",
+        f"--robot.port={ROBOT_PORT}",
+        f"--robot.id={ROBOT_ID}",
+        f"--dataset.repo_id={repo_id}",
+        f"--dataset.episode={ep}",
+    ]
+    # 끝날 때까지 대기 (연속 실행 시 안전)
+    return subprocess.call(cmd)
+
+@app.route("/")
+def index():
+    return render_template("index.html", countries=COUNTRIES)
+
+@app.post("/replay")
+def replay():
+    if lock.locked():
+        return ("이미 재생 중입니다. 잠시 후 다시 시도하세요.", 409)
+    repo_id = request.form.get("repo_id")
+    ep      = int(request.form.get("episode", -1))
+    if not repo_id or ep < 0:
+        return ("repo_id/episode 파라미터가 필요합니다.", 400)
+
+    def worker():
+        lock.acquire()
+        try:
+            run_replay(repo_id, ep)
+        finally:
+            lock.release()
+
+    threading.Thread(target=worker, daemon=True).start()
+    return f"{repo_id} / episode {ep} 재생 시작"
+templates/index.html 예시 (국기 이미지 버튼 → POST 전송)
+html
+복사
+편집
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <title>국가별 리플레이</title>
+  <style>
+    .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); gap:14px; max-width:820px; margin:24px auto; font-family:sans-serif;}
+    .card { border:1px solid #eee; border-radius:12px; padding:10px; text-align:center; cursor:pointer; }
+    .card:hover { box-shadow:0 2px 12px rgba(0,0,0,.08); }
+    .flag { width:120px; height:80px; object-fit:cover; border-radius:8px; }
+  </style>
+</head>
+<body>
+  <div class="grid">
+    {% for c in countries %}
+    <form class="card" method="POST" action="/replay">
+      <img class="flag" src="{{ url_for('static', filename='flags/' + c.flag) }}" alt="{{ c.name }}">
+      <div style="margin-top:8px;">{{ c.name }}</div>
+      <input type="hidden" name="repo_id" value="{{ c.repo_id }}">
+      <input type="hidden" name="episode" value="{{ c.episode }}">
+      <button type="submit" style="margin-top:8px;">재생</button>
+    </form>
+    {% endfor %}
+  </div>
+</body>
+</html>
